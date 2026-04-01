@@ -45,13 +45,18 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Read existing CFST result.csv and build Clash.Meta / v2rayN subscriptions")
     parser.add_argument("--vmess", default="", help="Original vmess:// node. If omitted, the script prompts for it.")
     parser.add_argument("--source", default="node-source.txt", help="Fallback source file when vmess is not provided interactively.")
-    parser.add_argument("--csv", default="cfst_windows_amd64/result.csv")
+
+    is_linux = sys.platform.startswith("linux")
+    default_cfst_dir = "cfst_linux_amd64" if is_linux else "cfst_windows_amd64"
+    default_exe_name = "cfst" if is_linux else "cfst.exe"
+
+    parser.add_argument("--csv", default=f"{default_cfst_dir}/result.csv")
     parser.add_argument("--output-dir", default="dist")
     parser.add_argument("--limit", type=int, default=20)
     parser.add_argument("--selection-mode", choices=["file"], default="file")
     parser.add_argument("--skip-cfst", action="store_true")
-    parser.add_argument("--cfst-exe", default="cfst_windows_amd64/cfst.exe")
-    parser.add_argument("--cfst-ip-file", default="cfst_windows_amd64/ip.txt")
+    parser.add_argument("--cfst-exe", default=f"{default_cfst_dir}/{default_exe_name}")
+    parser.add_argument("--cfst-ip-file", default=f"{default_cfst_dir}/ip.txt")
     parser.add_argument("--cfst-url", default="https://speed.cloudflare.com/__down?bytes=5000000")
     parser.add_argument("--cfst-threads", type=int, default=200)
     parser.add_argument("--cfst-times", type=int, default=4)
@@ -219,10 +224,74 @@ def proxy_name(base: str, idx: int, row: dict[str, object]) -> str:
     return f"{prefix}-\u4f18\u9009{idx}"
 
 
-def load_vm_proxies(text: str, prefix: str = "\u26a1VM") -> tuple[list[str], list[str]]:
-    """Parse Clash proxies YAML text and return (proxy_lines, clean_names)."""
+def _split_top_level(s: str, sep: str = ",") -> list[str]:
+    """Split string by separator, respecting nested braces and quotes."""
+    parts: list[str] = []
+    depth = 0
+    current: list[str] = []
+    in_quote: str | None = None
+    for ch in s:
+        if in_quote:
+            current.append(ch)
+            if ch == in_quote:
+                in_quote = None
+            continue
+        if ch in ('"', "'"):
+            in_quote = ch
+            current.append(ch)
+            continue
+        if ch == "{":
+            depth += 1
+            current.append(ch)
+        elif ch == "}":
+            depth -= 1
+            current.append(ch)
+        elif ch == sep and depth == 0:
+            parts.append("".join(current).strip())
+            current = []
+        else:
+            current.append(ch)
+    rest = "".join(current).strip()
+    if rest:
+        parts.append(rest)
+    return parts
+
+
+def parse_clash_inline_dict(text: str) -> dict[str, object]:
+    """Parse a Clash inline YAML dict string into a Python dict."""
+    text = text.strip()
+    if text.startswith("{") and text.endswith("}"):
+        text = text[1:-1].strip()
+    result: dict[str, object] = {}
+    for part in _split_top_level(text):
+        colon_idx = part.find(":")
+        if colon_idx < 0:
+            continue
+        key = part[:colon_idx].strip()
+        val = part[colon_idx + 1:].strip()
+        if not val:
+            result[key] = ""
+        elif (val.startswith('"') and val.endswith('"')) or (val.startswith("'") and val.endswith("'")):
+            result[key] = val[1:-1]
+        elif val.startswith("{"):
+            result[key] = parse_clash_inline_dict(val)
+        elif val.lower() == "true":
+            result[key] = True
+        elif val.lower() == "false":
+            result[key] = False
+        else:
+            try:
+                result[key] = int(val)
+            except ValueError:
+                result[key] = val
+    return result
+
+
+def load_vm_proxies(text: str, prefix: str = "\u26a1VM") -> tuple[list[str], list[str], list[dict[str, object]]]:
+    """Parse Clash proxies YAML text and return (proxy_lines, clean_names, parsed_dicts)."""
     proxy_lines: list[str] = []
     names: list[str] = []
+    parsed: list[dict[str, object]] = []
     for line in text.splitlines():
         stripped = line.strip()
         if not stripped.startswith("- {") and not stripped.startswith("- name:"):
@@ -241,30 +310,34 @@ def load_vm_proxies(text: str, prefix: str = "\u26a1VM") -> tuple[list[str], lis
         new_line = stripped.replace(f'name: "{original_name}"', f'name: "{clean_name}"')
         proxy_lines.append(f"  {new_line}")
         names.append(clean_name)
-    return proxy_lines, names
+        dict_text = stripped[2:] if stripped.startswith("- ") else stripped
+        proxy_dict = parse_clash_inline_dict(dict_text)
+        proxy_dict["_clean_name"] = clean_name
+        parsed.append(proxy_dict)
+    return proxy_lines, names, parsed
 
 
-def fetch_vm_nodes(args: argparse.Namespace, root: Path) -> tuple[list[str], list[str]]:
-    """Try to load VM nodes from URL or local file. Returns (proxy_lines, names)."""
+def fetch_vm_nodes(args: argparse.Namespace, root: Path) -> tuple[list[str], list[str], list[dict[str, object]]]:
+    """Try to load VM nodes from URL or local file. Returns (proxy_lines, names, parsed_dicts)."""
     if args.vm_url:
         try:
             print(f"Fetching VM nodes from {args.vm_url} ...")
             with urlopen(args.vm_url, timeout=15) as resp:
                 text = resp.read().decode("utf-8")
-            vm_lines, vm_names = load_vm_proxies(text, args.vm_prefix)
+            vm_lines, vm_names, vm_parsed = load_vm_proxies(text, args.vm_prefix)
             if vm_names:
                 print(f"  Loaded {len(vm_names)} VM nodes: {', '.join(vm_names)}")
-                return vm_lines, vm_names
+                return vm_lines, vm_names, vm_parsed
         except Exception as e:
             print(f"  Warning: could not fetch VM nodes: {e}")
     vm_file = (root / args.vm_file).resolve()
     if vm_file.exists():
         text = vm_file.read_text(encoding="utf-8")
-        vm_lines, vm_names = load_vm_proxies(text, args.vm_prefix)
+        vm_lines, vm_names, vm_parsed = load_vm_proxies(text, args.vm_prefix)
         if vm_names:
             print(f"Loaded {len(vm_names)} VM nodes from {vm_file}")
-            return vm_lines, vm_names
-    return [], []
+            return vm_lines, vm_names, vm_parsed
+    return [], [], []
 
 
 def render_clash(node: dict[str, object], rows: list[dict[str, object]], quality_size: int,
@@ -488,6 +561,290 @@ def build_vmess(node: dict[str, object], row: dict[str, object], idx: int) -> st
     return "vmess://" + base64.b64encode(raw).decode("ascii")
 
 
+def clash_proxy_to_surge(proxy: dict[str, object], clean_name: str) -> str | None:
+    """Convert a parsed Clash proxy dict to a Surge/Shadowrocket [Proxy] line."""
+    ptype = str(proxy.get("type", "")).lower()
+    server = str(proxy.get("server", ""))
+    port = int(proxy.get("port", 0))
+
+    if ptype == "vmess":
+        uuid = str(proxy.get("uuid", ""))
+        parts = [f"{clean_name} = vmess, {server}, {port}, username={uuid}"]
+        network = str(proxy.get("network", "tcp")).lower()
+        if network == "ws":
+            parts.append("ws=true")
+            ws_opts = proxy.get("ws-opts", {})
+            if isinstance(ws_opts, dict):
+                path = ws_opts.get("path", "/")
+                if path:
+                    parts.append(f"ws-path={path}")
+                headers = ws_opts.get("headers", {})
+                if isinstance(headers, dict) and headers.get("Host"):
+                    parts.append(f"ws-headers=Host:{headers['Host']}")
+        if proxy.get("tls"):
+            parts.append("tls=true")
+            sni = proxy.get("servername") or proxy.get("sni") or ""
+            if sni:
+                parts.append(f"sni={sni}")
+        return ", ".join(parts)
+
+    elif ptype == "vless":
+        uuid = str(proxy.get("uuid", ""))
+        parts = [f"{clean_name} = vless, {server}, {port}, username={uuid}"]
+        flow = proxy.get("flow", "")
+        if flow:
+            parts.append(f"flow={flow}")
+        network = str(proxy.get("network", "tcp")).lower()
+        if network == "ws":
+            parts.append("ws=true")
+            ws_opts = proxy.get("ws-opts", {})
+            if isinstance(ws_opts, dict):
+                path = ws_opts.get("path", "/")
+                if path:
+                    parts.append(f"ws-path={path}")
+                headers = ws_opts.get("headers", {})
+                if isinstance(headers, dict) and headers.get("Host"):
+                    parts.append(f"ws-headers=Host:{headers['Host']}")
+        if proxy.get("tls"):
+            parts.append("tls=true")
+            sni = proxy.get("servername") or proxy.get("sni") or ""
+            if sni:
+                parts.append(f"sni={sni}")
+        if proxy.get("skip-cert-verify"):
+            parts.append("skip-cert-verify=true")
+        return ", ".join(parts)
+
+    elif ptype == "trojan":
+        password = str(proxy.get("password", ""))
+        parts = [f"{clean_name} = trojan, {server}, {port}, password={password}"]
+        sni = proxy.get("sni") or proxy.get("servername") or ""
+        if sni:
+            parts.append(f"sni={sni}")
+        if proxy.get("skip-cert-verify"):
+            parts.append("skip-cert-verify=true")
+        return ", ".join(parts)
+
+    elif ptype == "ss":
+        cipher = str(proxy.get("cipher", ""))
+        password = str(proxy.get("password", ""))
+        parts = [f"{clean_name} = ss, {server}, {port}, encrypt-method={cipher}, password={password}"]
+        if proxy.get("plugin") == "shadow-tls":
+            plugin_opts = proxy.get("plugin-opts", {})
+            if isinstance(plugin_opts, dict):
+                stls_pwd = plugin_opts.get("password", "")
+                stls_host = plugin_opts.get("host", "")
+                stls_ver = plugin_opts.get("version", 3)
+                if stls_pwd:
+                    parts.append(f"shadow-tls-password={stls_pwd}")
+                if stls_host:
+                    parts.append(f"shadow-tls-sni={stls_host}")
+                if stls_ver:
+                    parts.append(f"shadow-tls-version={stls_ver}")
+        return ", ".join(parts)
+
+    elif ptype == "anytls":
+        password = str(proxy.get("password", ""))
+        parts = [f"{clean_name} = anytls, {server}, {port}, password={password}"]
+        sni = proxy.get("sni") or proxy.get("servername") or ""
+        if sni:
+            parts.append(f"sni={sni}")
+        if proxy.get("skip-cert-verify"):
+            parts.append("skip-cert-verify=true")
+        return ", ".join(parts)
+
+    return None
+
+
+def render_shadowrocket(node: dict[str, object], rows: list[dict[str, object]], quality_size: int,
+                        vm_parsed: list[dict[str, object]] | None = None,
+                        vm_names: list[str] | None = None) -> str:
+    """Generate a Surge/Shadowrocket-compatible .conf config."""
+    has_vm = bool(vm_names)
+    rn_names = [proxy_name(str(node["ps"]), i, row) for i, row in enumerate(rows, start=1)]
+    rn_quality = rn_names[: max(1, min(quality_size, len(rn_names)))]
+    test_url = "http://www.gstatic.com/generate_204"
+    lines: list[str] = []
+
+    # ---- [General] ----
+    lines += [
+        "[General]",
+        "bypass-system = true",
+        "skip-proxy = 192.168.0.0/16, 10.0.0.0/8, 172.16.0.0/12, localhost, *.local",
+        "bypass-tun = 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, "
+        "192.0.0.0/24, 192.168.0.0/16, 198.18.0.0/15, 224.0.0.0/4, 255.255.255.255/32",
+        "dns-server = https://doh.pub/dns-query, https://dns.alidns.com/dns-query, 223.5.5.5, 119.29.29.29",
+        "ipv6 = false",
+        "",
+    ]
+
+    # ---- [Proxy] ----
+    lines.append("[Proxy]")
+    vm_surge_names: list[str] = []
+    if has_vm and vm_parsed:
+        for proxy_dict in vm_parsed:
+            clean = str(proxy_dict.get("_clean_name", ""))
+            surge_line = clash_proxy_to_surge(proxy_dict, clean)
+            if surge_line:
+                lines.append(surge_line)
+                vm_surge_names.append(clean)
+            else:
+                print(f"  Shadowrocket: skipping VM node '{clean}' ({proxy_dict.get('type')}) - unsupported type")
+
+    for idx, row in enumerate(rows, start=1):
+        name = proxy_name(str(node["ps"]), idx, row)
+        parts = [f"{name} = vmess, {row['ip']}, {int(node['port'])}, username={node['id']}"]
+        if str(node["net"]).lower() == "ws":
+            parts.append("ws=true")
+            parts.append(f"ws-path={node['path']}")
+            parts.append(f"ws-headers=Host:{node['host']}")
+        if node["tls_enabled"]:
+            parts.append("tls=true")
+            parts.append(f"sni={node['sni']}")
+        lines.append(", ".join(parts))
+    lines.append("")
+
+    # ---- [Proxy Group] ----
+    lines.append("[Proxy Group]")
+    if has_vm and vm_surge_names:
+        main_choices = [GROUP_VM_AUTO, GROUP_RN_AUTO, GROUP_FAILOVER, "DIRECT"] + vm_surge_names + rn_names
+        lines.append(f"{GROUP_PROXY} = select, " + ", ".join(main_choices))
+        lines.append(f"{GROUP_VM_AUTO} = url-test, " + ", ".join(vm_surge_names) + f", url={test_url}, interval=300, tolerance=50")
+        lines.append(f"{GROUP_RN_AUTO} = url-test, " + ", ".join(rn_quality) + f", url={test_url}, interval=300, tolerance=50")
+        lines.append(f"{GROUP_FAILOVER} = fallback, {GROUP_VM_AUTO}, {GROUP_RN_AUTO}, url={test_url}, interval=300")
+        proxy_defaults = [GROUP_PROXY, GROUP_VM_AUTO, GROUP_RN_AUTO, GROUP_FAILOVER, "DIRECT"]
+        for gn in [GROUP_TELEGRAM, GROUP_GOOGLE, GROUP_YOUTUBE, GROUP_NETFLIX, GROUP_DISNEY,
+                    GROUP_CHATGPT, GROUP_GITHUB, GROUP_FOREIGN_MEDIA]:
+            lines.append(f"{gn} = select, " + ", ".join(proxy_defaults))
+        lines.append(f"{GROUP_ONEDRIVE} = select, {GROUP_RN_AUTO}, {GROUP_PROXY}, {GROUP_VM_AUTO}, {GROUP_FAILOVER}, DIRECT")
+        for gn in [GROUP_MICROSOFT, GROUP_APPLE, GROUP_GAMES]:
+            lines.append(f"{gn} = select, DIRECT, {GROUP_PROXY}, {GROUP_VM_AUTO}, {GROUP_RN_AUTO}, {GROUP_FAILOVER}")
+    else:
+        main_choices = [GROUP_AUTO, GROUP_LATENCY, GROUP_FAILOVER, "DIRECT"] + rn_names
+        lines.append(f"{GROUP_PROXY} = select, " + ", ".join(main_choices))
+        lines.append(f"{GROUP_AUTO} = url-test, " + ", ".join(rn_quality) + f", url={test_url}, interval=300, tolerance=50")
+        lines.append(f"{GROUP_LATENCY} = url-test, " + ", ".join(rn_names) + f", url={test_url}, interval=300, tolerance=30")
+        lines.append(f"{GROUP_FAILOVER} = fallback, " + ", ".join(rn_names) + f", url={test_url}, interval=300")
+        for gn in [GROUP_TELEGRAM, GROUP_GOOGLE, GROUP_YOUTUBE, GROUP_NETFLIX, GROUP_DISNEY,
+                    GROUP_CHATGPT, GROUP_GITHUB, GROUP_FOREIGN_MEDIA]:
+            lines.append(f"{gn} = select, {GROUP_PROXY}, {GROUP_AUTO}, {GROUP_LATENCY}, {GROUP_FAILOVER}, DIRECT")
+        for gn in [GROUP_ONEDRIVE, GROUP_MICROSOFT, GROUP_APPLE, GROUP_GAMES]:
+            lines.append(f"{gn} = select, DIRECT, {GROUP_PROXY}, {GROUP_AUTO}, {GROUP_LATENCY}, {GROUP_FAILOVER}")
+
+    bilibili_ch = ["DIRECT", GROUP_PROXY] + ([GROUP_VM_AUTO, GROUP_RN_AUTO] if has_vm else [GROUP_AUTO, GROUP_LATENCY])
+    for gn in [GROUP_BILIBILI, GROUP_DOMESTIC_MEDIA]:
+        lines.append(f"{gn} = select, " + ", ".join(bilibili_ch))
+    lines.append(f"{GROUP_ADS} = select, REJECT, DIRECT")
+    lines.append(f"{GROUP_DIRECT} = select, DIRECT, {GROUP_PROXY}")
+    final_ch = [GROUP_PROXY] + ([GROUP_VM_AUTO, GROUP_RN_AUTO] if has_vm else [GROUP_AUTO]) + [GROUP_FAILOVER, "DIRECT"]
+    lines.append(f"{GROUP_FINAL} = select, " + ", ".join(final_ch))
+    lines.append("")
+
+    # ---- [Rule] ----
+    lines.append("[Rule]")
+    rules = [
+        f"DOMAIN-SUFFIX,local,{GROUP_DIRECT}",
+        f"DOMAIN-SUFFIX,localhost,{GROUP_DIRECT}",
+        f"IP-CIDR,10.0.0.0/8,{GROUP_DIRECT},no-resolve",
+        f"IP-CIDR,100.64.0.0/10,{GROUP_DIRECT},no-resolve",
+        f"IP-CIDR,127.0.0.0/8,{GROUP_DIRECT},no-resolve",
+        f"IP-CIDR,172.16.0.0/12,{GROUP_DIRECT},no-resolve",
+        f"IP-CIDR,192.168.0.0/16,{GROUP_DIRECT},no-resolve",
+        f"IP-CIDR,198.18.0.0/16,{GROUP_DIRECT},no-resolve",
+        # Ads
+        f"DOMAIN-KEYWORD,adservice,{GROUP_ADS}",
+        f"DOMAIN-SUFFIX,doubleclick.net,{GROUP_ADS}",
+        f"DOMAIN-SUFFIX,googleadservices.com,{GROUP_ADS}",
+        f"DOMAIN-SUFFIX,googlesyndication.com,{GROUP_ADS}",
+        # ChatGPT
+        f"DOMAIN-SUFFIX,openai.com,{GROUP_CHATGPT}",
+        f"DOMAIN-SUFFIX,oaiusercontent.com,{GROUP_CHATGPT}",
+        f"DOMAIN-SUFFIX,chatgpt.com,{GROUP_CHATGPT}",
+        f"DOMAIN-SUFFIX,ai.com,{GROUP_CHATGPT}",
+        f"DOMAIN,copilot.microsoft.com,{GROUP_CHATGPT}",
+        # Telegram
+        f"DOMAIN-SUFFIX,telegram.org,{GROUP_TELEGRAM}",
+        f"DOMAIN-SUFFIX,t.me,{GROUP_TELEGRAM}",
+        f"DOMAIN-SUFFIX,telegra.ph,{GROUP_TELEGRAM}",
+        f"DOMAIN-SUFFIX,telesco.pe,{GROUP_TELEGRAM}",
+        f"IP-CIDR,91.108.0.0/16,{GROUP_TELEGRAM},no-resolve",
+        f"IP-CIDR,149.154.0.0/16,{GROUP_TELEGRAM},no-resolve",
+        # YouTube
+        f"DOMAIN-SUFFIX,youtube.com,{GROUP_YOUTUBE}",
+        f"DOMAIN-SUFFIX,ytimg.com,{GROUP_YOUTUBE}",
+        f"DOMAIN-SUFFIX,youtu.be,{GROUP_YOUTUBE}",
+        f"DOMAIN-SUFFIX,googlevideo.com,{GROUP_YOUTUBE}",
+        f"DOMAIN-SUFFIX,yt.be,{GROUP_YOUTUBE}",
+        f"DOMAIN-SUFFIX,youtube-nocookie.com,{GROUP_YOUTUBE}",
+        # Google
+        f"DOMAIN,dl.google.com,{GROUP_GOOGLE}",
+        f"DOMAIN-SUFFIX,google.com,{GROUP_GOOGLE}",
+        f"DOMAIN-SUFFIX,googleapis.com,{GROUP_GOOGLE}",
+        f"DOMAIN-SUFFIX,googleapis.cn,{GROUP_GOOGLE}",
+        f"DOMAIN-SUFFIX,gstatic.com,{GROUP_GOOGLE}",
+        f"DOMAIN-SUFFIX,ggpht.com,{GROUP_GOOGLE}",
+        f"DOMAIN-SUFFIX,googleusercontent.com,{GROUP_GOOGLE}",
+        f"DOMAIN-SUFFIX,xn--ngstr-lra8j.com,{GROUP_GOOGLE}",
+        f"DOMAIN-SUFFIX,google.cn,{GROUP_GOOGLE}",
+        # Netflix
+        f"DOMAIN-SUFFIX,netflix.com,{GROUP_NETFLIX}",
+        f"DOMAIN-SUFFIX,netflix.net,{GROUP_NETFLIX}",
+        f"DOMAIN-SUFFIX,nflxext.com,{GROUP_NETFLIX}",
+        f"DOMAIN-SUFFIX,nflximg.com,{GROUP_NETFLIX}",
+        f"DOMAIN-SUFFIX,nflximg.net,{GROUP_NETFLIX}",
+        f"DOMAIN-SUFFIX,nflxvideo.net,{GROUP_NETFLIX}",
+        f"DOMAIN-SUFFIX,nflxso.net,{GROUP_NETFLIX}",
+        # Disney+
+        f"DOMAIN-SUFFIX,disney.com,{GROUP_DISNEY}",
+        f"DOMAIN-SUFFIX,disneyplus.com,{GROUP_DISNEY}",
+        f"DOMAIN-SUFFIX,dssott.com,{GROUP_DISNEY}",
+        f"DOMAIN-SUFFIX,bamgrid.com,{GROUP_DISNEY}",
+        # GitHub
+        f"DOMAIN-SUFFIX,github.com,{GROUP_GITHUB}",
+        f"DOMAIN-SUFFIX,github.io,{GROUP_GITHUB}",
+        f"DOMAIN-SUFFIX,githubusercontent.com,{GROUP_GITHUB}",
+        f"DOMAIN-SUFFIX,githubassets.com,{GROUP_GITHUB}",
+        # OneDrive
+        f"DOMAIN-SUFFIX,onedrive.com,{GROUP_ONEDRIVE}",
+        f"DOMAIN-SUFFIX,onedrive.live.com,{GROUP_ONEDRIVE}",
+        f"DOMAIN-SUFFIX,sharepoint.com,{GROUP_ONEDRIVE}",
+        # Microsoft
+        f"DOMAIN-SUFFIX,microsoft.com,{GROUP_MICROSOFT}",
+        f"DOMAIN-SUFFIX,microsoftonline.com,{GROUP_MICROSOFT}",
+        f"DOMAIN-SUFFIX,msn.com,{GROUP_MICROSOFT}",
+        f"DOMAIN-SUFFIX,office.com,{GROUP_MICROSOFT}",
+        f"DOMAIN-SUFFIX,office365.com,{GROUP_MICROSOFT}",
+        f"DOMAIN-SUFFIX,windows.com,{GROUP_MICROSOFT}",
+        f"DOMAIN-SUFFIX,windows.net,{GROUP_MICROSOFT}",
+        f"DOMAIN-SUFFIX,live.com,{GROUP_MICROSOFT}",
+        # Apple
+        f"DOMAIN-SUFFIX,apple.com,{GROUP_APPLE}",
+        f"DOMAIN-SUFFIX,icloud.com,{GROUP_APPLE}",
+        f"DOMAIN-SUFFIX,itunes.com,{GROUP_APPLE}",
+        f"DOMAIN-SUFFIX,mzstatic.com,{GROUP_APPLE}",
+        f"DOMAIN-SUFFIX,cdn-apple.com,{GROUP_APPLE}",
+        # Games
+        f"DOMAIN-SUFFIX,steampowered.com,{GROUP_GAMES}",
+        f"DOMAIN-SUFFIX,steamcommunity.com,{GROUP_GAMES}",
+        f"DOMAIN-SUFFIX,steamstatic.com,{GROUP_GAMES}",
+        f"DOMAIN-SUFFIX,epicgames.com,{GROUP_GAMES}",
+        f"DOMAIN-KEYWORD,steam,{GROUP_GAMES}",
+        # Bilibili
+        f"DOMAIN-SUFFIX,bilibili.com,{GROUP_BILIBILI}",
+        f"DOMAIN-SUFFIX,bilivideo.com,{GROUP_BILIBILI}",
+        f"DOMAIN-SUFFIX,biliapi.com,{GROUP_BILIBILI}",
+        f"DOMAIN-SUFFIX,biliapi.net,{GROUP_BILIBILI}",
+        f"DOMAIN-SUFFIX,hdslb.com,{GROUP_BILIBILI}",
+        f"DOMAIN-SUFFIX,b23.tv,{GROUP_BILIBILI}",
+        # China direct
+        f"GEOIP,CN,{GROUP_DIRECT}",
+        # Final
+        f"FINAL,{GROUP_FINAL}",
+    ]
+    for rule in rules:
+        lines.append(rule)
+    return "\n".join(lines) + "\n"
+
+
 def is_private_lan_ip(value: str) -> bool:
     try:
         ip = ipaddress.ip_address(value)
@@ -538,7 +895,7 @@ def build_lan_links(ip: str, port: int) -> dict[str, str]:
         "web_index": f"{base}/lan-index.txt",
         "clash_mihomo": f"{base}/subscription-clash-meta.yaml",
         "v2rayn": f"{base}/subscription-v2rayn.txt",
-        "shadowrocket": f"{base}/subscription-v2rayn.txt",
+        "shadowrocket": f"{base}/subscription-shadowrocket.conf",
         "raw_vmess": f"{base}/subscription-v2rayn-raw.txt",
         "socks5": f"socks5://{ip}:7891",
         "mixed": f"http://{ip}:7890",
@@ -550,7 +907,7 @@ def write_lan_files(out_dir: Path, links: dict[str, str]) -> None:
         "LAN import links",
         f"Clash / Mihomo / Clash Verge / Meta for Android: {links['clash_mihomo']}",
         f"v2rayN: {links['v2rayn']}",
-        f"Shadowrocket: {links['shadowrocket']}",
+        f"Shadowrocket (config with rules): {links['shadowrocket']}",
         f"Raw vmess list: {links['raw_vmess']}",
         f"SOCKS5 proxy: {links['socks5']}",
         f"Mixed HTTP/SOCKS proxy: {links['mixed']}",
@@ -575,7 +932,7 @@ def serve_directory(out_dir: Path, bind: str, port: int) -> None:
 def main() -> None:
     args = parse_args()
     root = Path.cwd()
-    csv_path = resolve_path(root, args.csv, ["cfst_windows_amd64/result.csv", "**/result.csv"])
+    csv_path = resolve_path(root, args.csv, [args.csv, "**/result.csv"])
     out_dir = (root / args.output_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -587,11 +944,13 @@ def main() -> None:
     if measured == 0:
         print("Warning: result.csv does not contain download-speed rows.")
 
-    vm_proxy_lines, vm_names = fetch_vm_nodes(args, root)
+    vm_proxy_lines, vm_names, vm_parsed = fetch_vm_nodes(args, root)
     clash = render_clash(node, rows, args.quality_group_size, vm_proxy_lines, vm_names)
+    sr_conf = render_shadowrocket(node, rows, args.quality_group_size, vm_parsed, vm_names)
     vmess_lines = [build_vmess(node, row, i) for i, row in enumerate(rows, start=1)]
     vmess_raw = "\n".join(vmess_lines) + "\n"
     (out_dir / "subscription-clash-meta.yaml").write_text(clash, encoding="utf-8")
+    (out_dir / "subscription-shadowrocket.conf").write_text(sr_conf, encoding="utf-8")
     (out_dir / "subscription-v2rayn-raw.txt").write_text(vmess_raw, encoding="utf-8")
     (out_dir / "subscription-v2rayn.txt").write_text(base64.b64encode(vmess_raw.encode("utf-8")).decode("ascii"), encoding="utf-8")
     (out_dir / "preferred-ips.txt").write_text("\n".join(str(row["ip"]) for row in rows) + "\n", encoding="utf-8")
@@ -625,6 +984,7 @@ def main() -> None:
     mode_str = f"merged ({vm_count} VM + {len(rows)} RN)" if vm_count else f"RN-only ({len(rows)})"
     print(f"\nGenerated {vm_count + len(rows)} nodes [{mode_str}]")
     print(f"Clash.Meta config: {out_dir / 'subscription-clash-meta.yaml'}")
+    print(f"Shadowrocket config: {out_dir / 'subscription-shadowrocket.conf'}")
     print(f"v2rayN subscription: {out_dir / 'subscription-v2rayn.txt'}")
     print(f"\nLAN subscription links (need --serve or confirm below to activate):")
     for key, value in links.items():

@@ -5,6 +5,7 @@
 ## ✨ 功能特性
 
 - 🚀 读取 CFST 优选结果，自动生成完整的 Clash.Meta YAML 配置
+- 📱 生成 Shadowrocket (Surge) 兼容的 .conf 配置（含节点、分组、规则）
 - 🔗 同时生成 v2rayN 兼容的 base64 订阅文件
 - ⚡ **双线路整合**：同时支持 VM（顶级线路）和 RN（CF 优选大流量）节点
 - 📡 内置 HTTP 服务器，局域网设备直接导入订阅
@@ -18,14 +19,15 @@
 .
 ├── scripts/
 │   └── generator2.py          # 核心脚本
-├── cfst_windows_amd64/
-│   ├── cfst.exe               # CloudflareSpeedTest 工具
+├── cfst_windows_amd64/ (及 cfst_linux_amd64/)
+│   ├── cfst.exe 或 cfst          # CloudflareSpeedTest 工具
 │   ├── ip.txt                 # CFST 测速 IP 段
 │   └── result.csv             # CFST 测速结果（自动生成）
 ├── deploy/
 │   └── nginx-subscription.conf.example   # Nginx 部署示例
 ├── dist/                      # 输出目录（自动生成）
 │   ├── subscription-clash-meta.yaml      # Clash.Meta 订阅
+│   ├── subscription-shadowrocket.conf    # Shadowrocket 订阅（含规则/分组）
 │   ├── subscription-v2rayn.txt           # v2rayN 订阅（base64）
 │   ├── subscription-v2rayn-raw.txt       # v2rayN 订阅（原文）
 │   ├── preferred-ips.txt                 # 优选 IP 列表
@@ -68,17 +70,21 @@ python scripts/generator2.py --skip-cfst
 ```
 Generated 20 nodes [RN-only (20)]
 Clash.Meta config: D:\...\dist\subscription-clash-meta.yaml
+Shadowrocket config: D:\...\dist\subscription-shadowrocket.conf
 v2rayN subscription: D:\...\dist\subscription-v2rayn.txt
 
 LAN subscription links (need --serve or confirm below to activate):
   clash: http://192.168.31.81:8765/subscription-clash-meta.yaml
+  shadowrocket: http://192.168.31.81:8765/subscription-shadowrocket.conf
   v2rayn: http://192.168.31.81:8765/subscription-v2rayn.txt
 
 ℹ️  To let LAN devices import subscriptions, the HTTP server must keep running.
 Start LAN HTTP server on port 8765 now? [Y/n]
 ```
 
-在手机/平板的 Clash 客户端中导入上面的 URL 即可。
+- **Clash / Mihomo**: 导入 clash 链接
+- **Shadowrocket**: 导入 shadowrocket 链接（包含完整的节点、代理分组和分流规则）
+- **v2rayN**: 导入 v2rayn 链接
 
 ## ⚡ 双线路整合（VM + RN）
 
@@ -144,11 +150,11 @@ python scripts/generator2.py --skip-cfst \
 
 | 参数 | 默认值 | 说明 |
 |---|---|---|
-| `--csv` | `cfst_windows_amd64/result.csv` | CFST 结果文件 |
+| `--csv` | *(自动检测)* | CFST 结果文件（自动识别 Windows/Linux 对应目录） |
 | `--skip-cfst` | `false` | 跳过 CFST 测速 |
 | `--limit` | `20` | 选取的优选 IP 数量 |
 | `--quality-group-size` | `15` | 质量分组节点数 |
-| `--cfst-exe` | `cfst_windows_amd64/cfst.exe` | CFST 可执行文件路径 |
+| `--cfst-exe` | *(自动检测)* | CFST 可执行文件路径（自动识别系统） |
 | `--cfst-threads` | `200` | 测速线程数 |
 | `--cfst-max-latency` | `200` | 最大延迟 (ms) |
 | `--cfst-min-speed` | `0.0` | 最低速度 (MB/s) |
@@ -225,8 +231,8 @@ remote_port = 8765
 
 1. **防火墙**：使用 LAN 服务时，确保 Windows 防火墙允许对应端口（默认 8765）的入站连接
 2. **节点安全**：`节点订阅链接.txt` 和 `vm-nodes.yaml` 包含敏感信息，请勿提交到公开仓库
-3. **Linux 兼容**：脚本使用 `pathlib` 处理路径，在 Linux 上需要下载对应平台的 CFST 二进制文件
-4. **CFST 路径**：Linux 上将 `--cfst-exe` 指向 Linux 版本的 cfst 二进制文件
+3. **操作系统的智能判断**：脚本已支持自动判断系统。如果是 Linux，会自动选取 `cfst_linux_amd64/` 目录；如果是 Windows 则是 `cfst_windows_amd64/`。
+4. **CFST 路径**：你只需要确保对应目录下有正确的平台的 cfst 二进制文件及 ip.txt 即可，通常无需再手动指定 `--cfst-exe` 等参数。
 
 ## 📄 License
 
