@@ -50,7 +50,7 @@
 将你的 vmess:// 链接写入 `节点订阅链接.txt`：
 
 ```
-vmess://eyJ2IjoiMiIsInBzIjoiTXlOb2RlIiwiYWRkIjoiMS4yLjMuNCIs...
+vmess://...
 ```
 
 ### 第二步：运行 CFST 测速（如果还没有 result.csv）
@@ -74,9 +74,10 @@ Shadowrocket config: D:\...\dist\subscription-shadowrocket.conf
 v2rayN subscription: D:\...\dist\subscription-v2rayn.txt
 
 LAN subscription links (need --serve or confirm below to activate):
-  clash: http://192.168.31.81:8765/subscription-clash-meta.yaml
-  shadowrocket: http://192.168.31.81:8765/subscription-shadowrocket.conf
-  v2rayn: http://192.168.31.81:8765/subscription-v2rayn.txt
+
+  clash: http://ip:8765/subscription-clash-meta.yaml
+  shadowrocket: http://ip:8765/subscription-shadowrocket.conf
+  v2rayn: http://ip:8765/subscription-v2rayn.txt
 
 ℹ️  To let LAN devices import subscriptions, the HTTP server must keep running.
 Start LAN HTTP server on port 8765 now? [Y/n]
