@@ -1,0 +1,30 @@
+server {
+    listen 80;
+    server_name sub.xmoyi.top;
+
+    root /var/www/xmoyi-subscription/dist;
+    charset utf-8;
+
+    location = /subscription-clash-meta.yaml {
+        default_type text/yaml;
+        add_header Content-Disposition "inline";
+        try_files $uri =404;
+    }
+
+    location = /subscription-v2rayn.txt {
+        default_type text/plain;
+        add_header Content-Disposition "inline";
+        try_files $uri =404;
+    }
+
+    location = /subscription-v2rayn-raw.txt {
+        default_type text/plain;
+        add_header Content-Disposition "inline";
+        try_files $uri =404;
+    }
+
+    location / {
+        autoindex on;
+        try_files $uri $uri/ =404;
+    }
+}

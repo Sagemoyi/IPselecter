@@ -1,0 +1,12 @@
+# VM 节点源文件示例
+# 格式为标准 Clash proxies YAML
+# 如果你使用 fscarmen/sing-box，可从面板的 /proxies 端点获取
+#
+# 用法：
+#   1. 将此文件重命名为 vm-nodes.yaml
+#   2. 替换下面的节点为你自己的节点信息
+#   3. 运行 python scripts/generator2.py --skip-cfst
+
+proxies:
+  - {name: "示例节点 vless-reality", type: vless, server: 1.2.3.4, port: 443, uuid: your-uuid-here, network: tcp, udp: true, tls: true, flow: xtls-rprx-vision, servername: www.example.com, client-fingerprint: firefox, reality-opts: {public-key: your-public-key, short-id: ""}}
+  - {name: "示例节点 trojan", type: trojan, server: 1.2.3.4, port: 8886, password: your-password-here, sni: www.example.com, skip-cert-verify: false}
