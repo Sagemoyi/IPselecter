@@ -1,6 +1,10 @@
 # ☁️ CloudFlare 优选 IP 订阅生成器
 
-基于 [CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) 优选结果，自动生成 Clash.Meta / Mihomo 和 v2rayN 订阅文件的 Python 工具。支持**双线路整合**（顶级线路 + 大流量线路），内置 LAN HTTP 服务器方便局域网设备导入。
+基于 [CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) 优选结果，自动生成 Clash.Meta / Mihomo 和 v2rayN 订阅文件的 Python 工具。内置 LAN HTTP 服务器及 Token 防爆破混淆，方便多设备局域网/公网导入。
+
+> **🌟 创作背景**：
+> 假设你有一台 **优化线路 VPS**（使用 [sing-box 一键脚本](https://github.com/fscarmen/sing-box) 搭建顶级低延迟节点）和一台 **普通线路 VPS**（使用 3x-ui 搭建并套用了 Cloudflare CDN 的大流量节点）。
+> 本项目可以将这两个完全不同的节点源进行**“双线路整合”**。实现日常网页或游戏走优化路线（VM自动），大体积下载或谷歌云盘走 CDN 优选线路（RN大流量），榨干每一滴服务器性能。
 
 ## ✨ 功能特性
 
@@ -42,24 +46,23 @@
 ### 前置条件
 
 - Python 3.10+（仅使用标准库，无需 pip install）
-- 一个可用的 vmess 节点（来自你的 VPS / 3x-ui 面板等）
-- [CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) 已完成测速
+- 一个套了 Cloudflare CDN 的通信节点（来自你普通线路 VPS 上的 3x-ui 面板等）
+- 第三方工具 [CloudflareSpeedTest](https://github.com/XIU2/CloudflareSpeedTest) 已完成测速，并在对应目录下获得了 `result.csv` 文件。
 
-### 第一步：准备节点源
+### 第一步：准备普通线路（套 CDN）节点源
 
-将你的 vmess:// 链接写入 `节点订阅链接.txt`：
+将你的基础大流量节点的 vmess:// 链接写入本目录的 `节点订阅链接.txt` 中：
 
 ```
 vmess://eyJ2IjoiMiIsInBzIjoiTXlOb2RlIiwiYWRkIjoiMS4yLjMuNCIs...
 ```
 
-### 第二步：运行 CFST 测速（如果还没有 result.csv）
+### 第二步：生成订阅配置
+
+> ⚠️ 注意：脚本现已作为订阅生成生成器独立运作，不再内建 CFST 的下载测速流程，请事先自行准备好测速结果 `result.csv`。
 
 ```bash
-# 脚本会自动调用 cfst.exe 测速
-python scripts/generator2.py
-
-# 或者手动运行 cfst.exe 后跳过测速
+# 直接运行脚本整合数据（自动跳过测速并分配安全 Token）
 python scripts/generator2.py --skip-cfst
 ```
 
