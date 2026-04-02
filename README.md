@@ -50,7 +50,7 @@
 将你的 vmess:// 链接写入 `节点订阅链接.txt`：
 
 ```
-vmess://...
+vmess://eyJ2IjoiMiIsInBzIjoiTXlOb2RlIiwiYWRkIjoiMS4yLjMuNCIs...
 ```
 
 ### 第二步：运行 CFST 测速（如果还没有 result.csv）
@@ -74,10 +74,9 @@ Shadowrocket config: D:\...\dist\subscription-shadowrocket.conf
 v2rayN subscription: D:\...\dist\subscription-v2rayn.txt
 
 LAN subscription links (need --serve or confirm below to activate):
-
-  clash: http://ip:8765/subscription-clash-meta.yaml
-  shadowrocket: http://ip:8765/subscription-shadowrocket.conf
-  v2rayn: http://ip:8765/subscription-v2rayn.txt
+  clash: http://192.168.31.81:8765/subscription-clash-meta.yaml
+  shadowrocket: http://192.168.31.81:8765/subscription-shadowrocket.conf
+  v2rayn: http://192.168.31.81:8765/subscription-v2rayn.txt
 
 ℹ️  To let LAN devices import subscriptions, the HTTP server must keep running.
 Start LAN HTTP server on port 8765 now? [Y/n]
@@ -131,6 +130,7 @@ python scripts/generator2.py --skip-cfst \
 | 分流规则 | 默认路线 | 说明 |
 |---|---|---|
 | YouTube / Netflix / ChatGPT | ⚡ VM (via 节点选择) | 日常流媒体走顶级线路 |
+| ☁️ 谷歌云盘 (Google Drive) | 📥 RN大流量 | 大文件同步省 VM 流量 |
 | Ⓜ️ 微软云盘 (OneDrive) | 📥 RN大流量 | 大文件同步省 VM 流量 |
 | 哔哩哔哩 / 国内媒体 | DIRECT | 直连 |
 | 漏网之鱼 | 🚀 节点选择 | 未匹配的走节点选择 |
@@ -217,6 +217,7 @@ remote_port = 8765
 | 🎶 ChatGPT | select | → 节点选择 |
 | 😺 GitHub | select | → 节点选择 |
 | 🌍 国外媒体 | select | → 节点选择 |
+| ☁️ 谷歌云盘 | select | → RN大流量 / DIRECT |
 | Ⓜ️ 微软云盘 | select | → RN大流量 / DIRECT |
 | Ⓜ️ 微软服务 | select | → DIRECT |
 | 🍎 苹果服务 | select | → 节点选择 |
