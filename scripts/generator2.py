@@ -9,6 +9,7 @@ import json
 import re
 import socket
 import subprocess
+import secrets
 import sys
 from functools import partial
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -75,6 +76,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--vm-url", default="", help="URL to fetch VM proxies (Clash proxies YAML format)")
     parser.add_argument("--vm-file", default="vm-nodes.yaml", help="Local file with VM proxies")
     parser.add_argument("--vm-prefix", default="\u26a1VM", help="Prefix for VM node names")
+    parser.add_argument("--token", default="", help="Secret token for path obfuscation.")
     return parser.parse_args()
 
 
@@ -903,8 +905,13 @@ def detect_lan_ip() -> str:
     return "127.0.0.1"
 
 
-def build_lan_links(ip: str, port: int) -> dict[str, str]:
-    base = f"http://{ip}:{port}"
+class NoListHTTPRequestHandler(SimpleHTTPRequestHandler):
+    def list_directory(self, path):
+        self.send_error(404, "No permission to list directory")
+        return None
+
+def build_lan_links(ip: str, port: int, token: str) -> dict[str, str]:
+    base = f"http://{ip}:{port}/{token}" if token else f"http://{ip}:{port}"
     return {
         "web_index": f"{base}/lan-index.txt",
         "clash_mihomo": f"{base}/subscription-clash-meta.yaml",
@@ -932,7 +939,7 @@ def write_lan_files(out_dir: Path, links: dict[str, str]) -> None:
 
 
 def serve_directory(out_dir: Path, bind: str, port: int) -> None:
-    handler = partial(SimpleHTTPRequestHandler, directory=str(out_dir))
+    handler = partial(NoListHTTPRequestHandler, directory=str(out_dir))
     server = ThreadingHTTPServer((bind, port), handler)
     print(f"Serving {out_dir} on http://{bind}:{port}/ . Press Ctrl+C to stop.")
     try:
@@ -947,7 +954,20 @@ def main() -> None:
     args = parse_args()
     root = Path.cwd()
     csv_path = resolve_path(root, args.csv, [args.csv, "**/result.csv"])
-    out_dir = (root / args.output_dir).resolve()
+    
+    out_dir_base = (root / args.output_dir).resolve()
+    token_file = root / ".token"
+    token = ""
+    if args.token:
+        token = args.token
+        token_file.write_text(token, encoding="utf-8")
+    elif token_file.exists():
+        token = token_file.read_text(encoding="utf-8").strip()
+    else:
+        token = secrets.token_urlsafe(12)
+        token_file.write_text(token, encoding="utf-8")
+        
+    out_dir = (out_dir_base / token).resolve() if token else out_dir_base
     out_dir.mkdir(parents=True, exist_ok=True)
 
     node, source_desc = get_source_node(args, root)
@@ -970,7 +990,7 @@ def main() -> None:
     (out_dir / "preferred-ips.txt").write_text("\n".join(str(row["ip"]) for row in rows) + "\n", encoding="utf-8")
 
     lan_ip = detect_lan_ip()
-    links = build_lan_links(lan_ip, args.serve_port)
+    links = build_lan_links(lan_ip, args.serve_port, token)
     write_lan_files(out_dir, links)
 
     summary = [
@@ -1015,7 +1035,7 @@ def main() -> None:
         should_serve = answer in ("", "y", "yes")
 
     if should_serve:
-        serve_directory(out_dir, args.serve_bind, args.serve_port)
+        serve_directory(out_dir_base, args.serve_bind, args.serve_port)
 
 
 if __name__ == "__main__":
