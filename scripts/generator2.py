@@ -25,7 +25,6 @@ GROUP_ADS = "\U0001f6d1 \u5e7f\u544a\u62e6\u622a"
 GROUP_PURIFY = "\U0001f343 \u5e94\u7528\u51c0\u5316"
 GROUP_FINAL = "\U0001f41f \u6f0f\u7f51\u4e4b\u9c7c"
 GROUP_GOOGLE = "\U0001f4e2 \u8c37\u6b4c\u670d\u52a1"
-GROUP_GOOGLE_DRIVE = "\u2601\ufe0f \u8c37\u6b4c\u4e91\u76d8"
 GROUP_YOUTUBE = "\U0001f4f9 YouTube"
 GROUP_NETFLIX = "\U0001f3a5 Netflix"
 GROUP_DISNEY = "\U0001f3a5 Disney+"
@@ -374,12 +373,6 @@ def render_clash(node: dict[str, object], rows: list[dict[str, object]], quality
         f"GEOSITE,bilibili,{GROUP_BILIBILI}",
         f"GEOSITE,openai,{GROUP_CHATGPT}",
         f"GEOSITE,telegram,{GROUP_TELEGRAM}",
-        f"DOMAIN-SUFFIX,drive.google.com,{GROUP_GOOGLE_DRIVE}",
-        f"DOMAIN-SUFFIX,googledrive.com,{GROUP_GOOGLE_DRIVE}",
-        f"DOMAIN-SUFFIX,drive.usercontent.google.com,{GROUP_GOOGLE_DRIVE}",
-        f"DOMAIN-SUFFIX,docs.google.com,{GROUP_GOOGLE_DRIVE}",
-        f"DOMAIN-SUFFIX,googleapis.com,{GROUP_GOOGLE_DRIVE}",
-        f"DOMAIN-SUFFIX,googleusercontent.com,{GROUP_GOOGLE_DRIVE}",
         f"GEOSITE,google,{GROUP_GOOGLE}",
         f"GEOSITE,youtube,{GROUP_YOUTUBE}",
         f"GEOSITE,netflix,{GROUP_NETFLIX}",
@@ -502,10 +495,9 @@ def render_clash(node: dict[str, object], rows: list[dict[str, object]], quality
         for gn in [GROUP_TELEGRAM, GROUP_GOOGLE, GROUP_YOUTUBE, GROUP_NETFLIX, GROUP_DISNEY, GROUP_CHATGPT, GROUP_GITHUB, GROUP_FOREIGN_MEDIA]:
             lines += [f'  - name: "{gn}"', '    type: "select"']
             add_list(lines, "proxies", proxy_defaults, 4)
-        # Google Drive & OneDrive: RN first (large file sync saves VM bandwidth)
-        for gn in [GROUP_GOOGLE_DRIVE, GROUP_ONEDRIVE]:
-            lines += [f'  - name: "{gn}"', '    type: "select"']
-            add_list(lines, "proxies", [GROUP_RN_AUTO, GROUP_PROXY, GROUP_VM_AUTO, GROUP_FAILOVER, "DIRECT"], 4)
+        # OneDrive: RN first (large file sync saves VM bandwidth)
+        lines += [f'  - name: "{GROUP_ONEDRIVE}"', '    type: "select"']
+        add_list(lines, "proxies", [GROUP_RN_AUTO, GROUP_PROXY, GROUP_VM_AUTO, GROUP_FAILOVER, "DIRECT"], 4)
         # Services: DIRECT first
         for gn in [GROUP_MICROSOFT, GROUP_APPLE, GROUP_GAMES]:
             lines += [f'  - name: "{gn}"', '    type: "select"']
@@ -527,7 +519,7 @@ def render_clash(node: dict[str, object], rows: list[dict[str, object]], quality
         for gn in [GROUP_TELEGRAM, GROUP_GOOGLE, GROUP_YOUTUBE, GROUP_NETFLIX, GROUP_DISNEY, GROUP_CHATGPT, GROUP_GITHUB, GROUP_FOREIGN_MEDIA]:
             lines += [f'  - name: "{gn}"', '    type: "select"']
             add_list(lines, "proxies", [GROUP_PROXY, GROUP_AUTO, GROUP_LATENCY, GROUP_FAILOVER, "DIRECT"], 4)
-        for gn in [GROUP_GOOGLE_DRIVE, GROUP_ONEDRIVE, GROUP_MICROSOFT, GROUP_APPLE, GROUP_GAMES]:
+        for gn in [GROUP_ONEDRIVE, GROUP_MICROSOFT, GROUP_APPLE, GROUP_GAMES]:
             lines += [f'  - name: "{gn}"', '    type: "select"']
             add_list(lines, "proxies", ["DIRECT", GROUP_PROXY, GROUP_AUTO, GROUP_LATENCY, GROUP_FAILOVER], 4)
     # ---- Shared groups (both modes) ----
@@ -725,8 +717,7 @@ def render_shadowrocket(node: dict[str, object], rows: list[dict[str, object]], 
         for gn in [GROUP_TELEGRAM, GROUP_GOOGLE, GROUP_YOUTUBE, GROUP_NETFLIX, GROUP_DISNEY,
                     GROUP_CHATGPT, GROUP_GITHUB, GROUP_FOREIGN_MEDIA]:
             lines.append(f"{gn} = select, " + ", ".join(proxy_defaults))
-        for gn in [GROUP_GOOGLE_DRIVE, GROUP_ONEDRIVE]:
-            lines.append(f"{gn} = select, {GROUP_RN_AUTO}, {GROUP_PROXY}, {GROUP_VM_AUTO}, {GROUP_FAILOVER}, DIRECT")
+        lines.append(f"{GROUP_ONEDRIVE} = select, {GROUP_RN_AUTO}, {GROUP_PROXY}, {GROUP_VM_AUTO}, {GROUP_FAILOVER}, DIRECT")
         for gn in [GROUP_MICROSOFT, GROUP_APPLE, GROUP_GAMES]:
             lines.append(f"{gn} = select, DIRECT, {GROUP_PROXY}, {GROUP_VM_AUTO}, {GROUP_RN_AUTO}, {GROUP_FAILOVER}")
     else:
@@ -738,7 +729,7 @@ def render_shadowrocket(node: dict[str, object], rows: list[dict[str, object]], 
         for gn in [GROUP_TELEGRAM, GROUP_GOOGLE, GROUP_YOUTUBE, GROUP_NETFLIX, GROUP_DISNEY,
                     GROUP_CHATGPT, GROUP_GITHUB, GROUP_FOREIGN_MEDIA]:
             lines.append(f"{gn} = select, {GROUP_PROXY}, {GROUP_AUTO}, {GROUP_LATENCY}, {GROUP_FAILOVER}, DIRECT")
-        for gn in [GROUP_GOOGLE_DRIVE, GROUP_ONEDRIVE, GROUP_MICROSOFT, GROUP_APPLE, GROUP_GAMES]:
+        for gn in [GROUP_ONEDRIVE, GROUP_MICROSOFT, GROUP_APPLE, GROUP_GAMES]:
             lines.append(f"{gn} = select, DIRECT, {GROUP_PROXY}, {GROUP_AUTO}, {GROUP_LATENCY}, {GROUP_FAILOVER}")
 
     bilibili_ch = ["DIRECT", GROUP_PROXY] + ([GROUP_VM_AUTO, GROUP_RN_AUTO] if has_vm else [GROUP_AUTO, GROUP_LATENCY])
@@ -786,19 +777,14 @@ def render_shadowrocket(node: dict[str, object], rows: list[dict[str, object]], 
         f"DOMAIN-SUFFIX,googlevideo.com,{GROUP_YOUTUBE}",
         f"DOMAIN-SUFFIX,yt.be,{GROUP_YOUTUBE}",
         f"DOMAIN-SUFFIX,youtube-nocookie.com,{GROUP_YOUTUBE}",
-        # Google Drive
-        f"DOMAIN-SUFFIX,drive.google.com,{GROUP_GOOGLE_DRIVE}",
-        f"DOMAIN-SUFFIX,googledrive.com,{GROUP_GOOGLE_DRIVE}",
-        f"DOMAIN-SUFFIX,drive.usercontent.google.com,{GROUP_GOOGLE_DRIVE}",
-        f"DOMAIN-SUFFIX,docs.google.com,{GROUP_GOOGLE_DRIVE}",
-        f"DOMAIN-SUFFIX,googleapis.com,{GROUP_GOOGLE_DRIVE}",
-        f"DOMAIN-SUFFIX,googleusercontent.com,{GROUP_GOOGLE_DRIVE}",
         # Google
         f"DOMAIN,dl.google.com,{GROUP_GOOGLE}",
         f"DOMAIN-SUFFIX,google.com,{GROUP_GOOGLE}",
+        f"DOMAIN-SUFFIX,googleapis.com,{GROUP_GOOGLE}",
         f"DOMAIN-SUFFIX,googleapis.cn,{GROUP_GOOGLE}",
         f"DOMAIN-SUFFIX,gstatic.com,{GROUP_GOOGLE}",
         f"DOMAIN-SUFFIX,ggpht.com,{GROUP_GOOGLE}",
+        f"DOMAIN-SUFFIX,googleusercontent.com,{GROUP_GOOGLE}",
         f"DOMAIN-SUFFIX,xn--ngstr-lra8j.com,{GROUP_GOOGLE}",
         f"DOMAIN-SUFFIX,google.cn,{GROUP_GOOGLE}",
         # Netflix

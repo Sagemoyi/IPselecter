@@ -133,7 +133,6 @@ python scripts/generator2.py --skip-cfst \
 | 分流规则 | 默认路线 | 说明 |
 |---|---|---|
 | YouTube / Netflix / ChatGPT | ⚡ VM (via 节点选择) | 日常流媒体走顶级线路 |
-| ☁️ 谷歌云盘 (Google Drive) | 📥 RN大流量 | 大文件同步省 VM 流量 |
 | Ⓜ️ 微软云盘 (OneDrive) | 📥 RN大流量 | 大文件同步省 VM 流量 |
 | 哔哩哔哩 / 国内媒体 | DIRECT | 直连 |
 | 漏网之鱼 | 🚀 节点选择 | 未匹配的走节点选择 |
@@ -221,7 +220,6 @@ remote_port = 8765
 | 🎶 ChatGPT | select | → 节点选择 |
 | 😺 GitHub | select | → 节点选择 |
 | 🌍 国外媒体 | select | → 节点选择 |
-| ☁️ 谷歌云盘 | select | → RN大流量 / DIRECT |
 | Ⓜ️ 微软云盘 | select | → RN大流量 / DIRECT |
 | Ⓜ️ 微软服务 | select | → DIRECT |
 | 🍎 苹果服务 | select | → 节点选择 |
